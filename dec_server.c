@@ -6,7 +6,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-
+#include <semaphore.h>
 
 
 /*
@@ -42,20 +42,28 @@ struct sockaddr_in serverAddress, clientAddress;
 socklen_t sizeOfClientInfo = sizeof(clientAddress);
 
 
+// Number of resources in the pool
+#define POOL_SIZE       5
+
+// Declare a semaphone
+sem_t counting_sem;
+
+// Number of threads to spawn
+int NUM_THREADS = 0;
+
 // Error function used for reporting issues
 void error(const char* msg) {
     perror(msg);
     exit(1);
 }
 
-void dec_process() {
+void use_resource(int connectionSocket) {
     char buffer[140020];
     char test[11];
     char* key;
     char alpha[27] = { 'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z',' ' };
     char plainText[70000];
     char keyText[70005];
-
 
     // Get the message from the client and display it
     memset(test, '\0', 11);
@@ -105,9 +113,20 @@ void dec_process() {
     if (charsRead < 0) {
         error("ERROR writing to socket");
     }
-    // Close the connection socket for this client
-    close(connectionSocket);
+    NUM_THREADS--;
     return;
+}
+
+void* dec_process(void* argument, int sock) {
+    // The argument to the thread is a pointer to a character 
+
+    sem_wait(&counting_sem);
+
+    use_resource(sock);
+
+    sem_post(&counting_sem);
+
+    return NULL;
 }
 
 
@@ -132,6 +151,7 @@ void setupAddressStruct(struct sockaddr_in* address,
 // Initiate our program, create and call all 4 threads and handle their return
 int main(int argc, char* argv[]) {
 
+    int pid;
 
     // Check usage & args
     if (argc < 2) {
@@ -139,9 +159,15 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
+    // Initialize the semaphore to POOL_SIZE
+    int res = sem_init(&counting_sem, 0, POOL_SIZE);
+
+    pthread_t threads[NUM_THREADS];
+    char thread_name[NUM_THREADS];
 
     // Create the socket that will listen for connections
     int listenSocket = socket(AF_INET, SOCK_STREAM, 0);
+
     if (listenSocket < 0) {
         error("ERROR opening socket");
     }
@@ -165,15 +191,34 @@ int main(int argc, char* argv[]) {
         connectionSocket = accept(listenSocket,
             (struct sockaddr*)&clientAddress,
             &sizeOfClientInfo);
+
         if (connectionSocket < 0) {
             error("ERROR on accept");
         }
-        
-        dec_process();
+
+        pid = fork();
+
+        if (pid < 0) {
+            error("ERROR on fork");
+        }
+
+        if (pid == 0) {
+            // Close the listening socket
+            close(listenSocket);
+            NUM_THREADS++;
+            // Give threads a name starting with 'A' which is ASCII 65
+            thread_name[NUM_THREADS] = NUM_THREADS + 65;
+            dec_process((void*)&thread_name[NUM_THREADS], connectionSocket);
+            exit(0);
+        }
+        else {
+            close(connectionSocket);
+        }
 
     }
 
-    // Close the listening socket
-    close(listenSocket);
+    // Destroy the semphore
+    sem_destroy(&counting_sem);
+
     return 0;
 }

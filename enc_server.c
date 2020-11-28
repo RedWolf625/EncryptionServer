@@ -119,20 +119,11 @@ void use_resource(int connectionSocket) {
 
 void* enc_process(void* argument, int sock) {
     // The argument to the thread is a pointer to a character 
-    char thread_name = *((char*)argument);
-    int resources_available;
-    printf("%c wants resource, iteration: %d\n", thread_name);
-
-    // sem_getvalue returns the current value of the semaphore in resourcesAvailable
-    sem_getvalue(&counting_sem, &resources_available);
-    printf("Resources available: %d\n", resources_available);
     
     sem_wait(&counting_sem);
     
-    printf("%c got resource\n", thread_name);
     use_resource(sock);
     
-    printf("%c giving up resource\n", thread_name);
     sem_post(&counting_sem);
     
     return NULL;
