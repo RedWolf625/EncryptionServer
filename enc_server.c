@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -67,7 +66,7 @@ void error(const char* msg) {
    The meat of the encryption server.  Take the plaintext and key sent by the encryption client, 
    And encrypt the plaintext with the key
 */
-void use_resource(int connectionSocket) {
+void enc_process(int connectionSocket) {
 
     // Holds the plaintext and key sent over from the client 
     char buffer[140020];
@@ -144,32 +143,19 @@ void use_resource(int connectionSocket) {
     // Send the encrypted string back to the client, only stopping once you've sent a strlen(plainText) amount of chars
     charsRead = strlen(plainText);
     while (sentBits < charsRead) {
+
         // Send a Success message back to the client
         sendFbits = send(connectionSocket, plainText, strlen(plainText), 0);
         sentBits = sentBits + sendFbits;
     }
+
     if (charsRead < 0) {
         error("ERROR writing to socket");
     }
+
     NUM_THREADS--;
     return;
 }
-
-
-// Middle man function that attempts to lock the semaphore and call use_resource.  Blocks if we are at the max number of connections
-void* enc_process(void* argument, int sock) {
-
-    // Try to decrement the semaphore and run the use_resource function.  Blocks if it cannot decrement    
-    sem_wait(&counting_sem);
-    
-    use_resource(sock);
-    
-    // Increment the semaphore
-    sem_post(&counting_sem);
-    
-    return NULL;
-}
-
 
 
 // Set up the address struct for the server socket
@@ -188,7 +174,6 @@ void setupAddressStruct(struct sockaddr_in* address,
 }
 
 
-
 // Initiate our program, create a socket, listen for connections, accept connections, and run the encryption method
 int main(int argc, char* argv[]) {
 
@@ -204,9 +189,6 @@ int main(int argc, char* argv[]) {
     // Initialize the semaphore to POOL_SIZE
     int res = sem_init(&counting_sem, 0, POOL_SIZE);
 
-    // Create threads to handle multiple connections
-    pthread_t threads[NUM_THREADS];
-    char thread_name[NUM_THREADS];
 
     // Create the socket that will listen for connections
     int listenSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -248,14 +230,21 @@ int main(int argc, char* argv[]) {
 
         // If successful, begin the encryption process
         if (pid == 0) {
+
             // Close the listening socket
             close(listenSocket);
+
             // Increase our thread tracking int by 1
             NUM_THREADS++;
-            // Give threads a name starting with 'A' which is ASCII 65
-            thread_name[NUM_THREADS] = NUM_THREADS + 65;
-            // Run the encryption middle process to see if we can encrypt this connection
-            enc_process((void*)&thread_name[NUM_THREADS], connectionSocket);
+
+            // Try to decrement the semaphore and run the use_resource function.  Blocks if it cannot decrement    
+            sem_wait(&counting_sem);
+
+            enc_process(connectionSocket);
+
+            // Increment the semaphore
+            sem_post(&counting_sem);
+
             exit(0);
         }
         else {
