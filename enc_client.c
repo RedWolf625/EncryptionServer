@@ -27,13 +27,6 @@
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-/*
-  I used the final example from the explorations as the foundation for how I built out this program, modifying it to act as my input
-  and output.  So any similarities you see between those two processes and the final example from Exploration: Condition Varialbes is
-  for that reason.  I also utilized stack overflow for direction on how best to implement the character expansion.
-*/
-
-
 
 /**
 * Client code
@@ -58,6 +51,7 @@ void setupAddressStruct(struct sockaddr_in* address,
 
     // The address should be network capable
     address->sin_family = AF_INET;
+
     // Store the port number
     address->sin_port = htons(portNumber);
 
@@ -67,6 +61,7 @@ void setupAddressStruct(struct sockaddr_in* address,
         fprintf(stderr, "CLIENT: ERROR, no such host\n");
         exit(2);
     }
+
     // Copy the first IP address from the DNS entry to sin_addr.s_addr
     memcpy((char*)&address->sin_addr.s_addr,
         hostInfo->h_addr_list[0],
@@ -74,17 +69,38 @@ void setupAddressStruct(struct sockaddr_in* address,
 }
 
 int main(int argc, char* argv[]) {
-    int socketFD, portNumber, plainWritten, sentPbits, keyWritten, sentKbits, charsRead, comLen, badPoint = 0;
-    int validFile;
+
+    /*
+        Ints to hold the socketFD, portNumber, the chars written to the server overall, 
+        the specific amount of chars sent from the plaintext/key string and the verification string, 
+        the amount of chars read from the server, the combined length of the plaintext/key string,
+        and the file descriptor for our open plaintext and key files
+    */
+    int socketFD, portNumber, plainWritten, sentPbits, sentKbits, charsRead, comLen, validFile = 0;
+
+    // Disallowed characters
     char bad[45] = { 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i',  'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '$', '*', '!', '(', '#', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-'};
+    
+    // Char array for our plainText
     char plainText[70000];
+    
+    // Char array for our key
     char keyText[70005];
+    
+    // Array to hold the combined plaintext and key data
     char finArr[140020];
+    
+    // Char to add the plainText file name to for opening
     char plainPath[15] = "./";
+    
+    // Char to add the key file name to for opening
     char keyPath[10] = "./";
-    char test[11];
+    
+    // Char to hold our verification info in
+    char verifArr[4];
 
     struct sockaddr_in serverAddress;
+
     // Check usage & args
     if (argc < 4) {
         fprintf(stderr, "USAGE: %s hostname port\n", argv[0]);
@@ -103,10 +119,13 @@ int main(int argc, char* argv[]) {
 
 
 
-    // Get input message from plaintest file
+    // Get input plaintext filename
     strcat(plainPath, argv[1]);
+
+    // Get input key filename
     strcat(keyPath, argv[2]);
 
+    // Open the plaintext file in read only mode
     validFile = open(plainPath, O_RDONLY);
 
     if (validFile == -1) {
@@ -115,10 +134,11 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
+    // Read the plaintext file into the plainText char array and close the file
     ssize_t plainLen = read(validFile, plainText, sizeof(plainText));
     close(validFile);
 
-
+    // Do the same with the key as we did for plaintext
     validFile = open(keyPath, O_RDONLY);
 
     if (validFile == -1) {
@@ -129,12 +149,17 @@ int main(int argc, char* argv[]) {
     ssize_t keyLen = read(validFile, keyText, sizeof(keyText));
     close(validFile);
     
+    /* 
+       Remove the trailing newline character from the plainText and keyText char arrays.  
+       Decrement the ints holding their len and hold the combined length in the comLen int
+     */
     plainText[strcspn(plainText, "\n")] = '\0';
     plainLen--;
     keyText[strcspn(keyText, "\n")] = '\0';
     keyLen--;
     comLen = plainLen + keyLen;
 
+    // Iterate through the plainText and make sure no disallowed chars exist in plainText.
     for (int i = 0; i < strlen(plainText); i++) {
         for (int j = 0; j < strlen(bad); j++)
         if (plainText[i] == bad[j]) {
@@ -143,17 +168,20 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    sprintf(test, "%d", comLen);
-    strcat(test, " enc1");
-
-    strcat(finArr, plainText);
-    strcat(finArr, "@");
-    strcat(finArr, keyText);
-
+    // Check to see if the key is too short
     if (keyLen < plainLen) {
         error("ERROR: key is too short\n");
         exit(1);
     }
+
+    // Set up the verification array to tell the server this client is the encryption client
+    strcat(verifArr, "enc1");
+
+    // place both the plaintext and the key in the final array with an @ in between them
+    strcat(finArr, plainText);
+    strcat(finArr, "@");
+    strcat(finArr, keyText);
+
 
     // Connect to server
     if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) {
@@ -161,11 +189,15 @@ int main(int argc, char* argv[]) {
         exit(2);
     }
     
-    // Send message to server
-    // Write to the server
+    /* 
+        First send the verification string if we are connecting for the first time followed 
+        By the combined plaintext/key string.  Count how many chars we've sent and stop once we've hit
+        the length of the combined string
+    */
     while (plainWritten < comLen) {
-        sentKbits = send(socketFD, test, strlen(test), 0);
-        sleep(1);
+        if (plainWritten == 0) {
+            sentKbits = send(socketFD, verifArr, strlen(verifArr), 0);
+        }
         sentPbits = send(socketFD, finArr, strlen(finArr), 0);
         plainWritten = plainWritten + sentPbits;
     }
@@ -177,6 +209,7 @@ int main(int argc, char* argv[]) {
     // Get return message from server
     // Clear out the buffer again for reuse
     memset(finArr, '\0', sizeof(finArr));
+
     // Read data from the socket, leaving \0 at end
     charsRead = recv(socketFD, finArr, sizeof(finArr) - 1, 0);
     if (charsRead < 0) {

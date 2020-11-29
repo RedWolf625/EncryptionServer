@@ -23,36 +23,52 @@
 */
 
 /*
-  I used the final example from the explorations as the foundation for how I built out this program, modifying it to act as my input
-  and output.  So any similarities you see between those two processes and the final example from Exploration: Condition Varialbes is
-  for that reason.  I also utilized stack overflow for direction on how best to implement the character expansion.
+  I used the following to generate a random number for this key generator: https://www.geeksforgeeks.org/generating-random-number-range-c/
 */
 
-int generate_random(int l, int r) { //this will generate random number in range l and r
+// Generate and return a random number in range l - r
+int generate_random(int l, int r) {
     int rand_num = (rand() % (r - l + 1)) + l;
     return rand_num;
 }
 
-// Initiate our program, create and call all 4 threads and handle their return
+// Call our helper function to generate a random number from 0 - 26 and match that with the letter in the alphabet to build a random string
 int main(int argc, char *argv[])
 {
+    // Our alphabet + space for key generation
     char alpha[27] = {'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z',' '};
+
+    // The length of our key will be the second argument passed in from the console
     char *numb = argv[1];
+
+    /* 
+        Establish the upper and lower bounds for generate_random with an int for the desired len of 
+        our key and an int for which index we are creating a char for
+    */
     int lower = 0, upper = 26, count = atoi(numb), curr = 0;
+
+    // Our array to hold our key +1 to hold the null terminator
     char strn[count+1];
 
-    // Check usage & args
+    // Check to make sure we have enough args
     if (argc < 2) {
-        fprintf(stderr, "USAGE: %s port\n", argv[0]);
+        fprintf(stderr, "Insufficient Argument\n", argv[0]);
         exit(1);
     }
 
-    srand(time(0)); //current time as seed of random number generator
+    //current time as seed of random number generator
+    srand(time(0)); 
+
+    // generate count number of random chars and coppy them into the strn array
     for (int i = 0; i < count; i++) {
         curr = generate_random(lower, upper);
         strn[i] = alpha[curr];
     }
+
+    // Set the last char to be a null terminator
     strn[count + 1] = '\0';
+
+    // Print out the key with a newline char at the end
     for (int i = 0; i < count; i++) {
         printf("%c", strn[i]);
     }

@@ -10,37 +10,41 @@
 
 
 /*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-|Author: Nathan Shelby                                                                                                          |
-|Date: 11/15/2020                                                                                                               |
-|Course: CS344                                                                                                                  |
-|                                        Homework 4: Multi-threaded Producer Consumer Pipeline                                  |
-|                                                                                                                               |
-|Write a program that creates 4 threads to process input from standard input as follows:                                        |
-                                                                                                                                |
-|Thread 1, called the Input Thread, reads in lines of characters from the standard input.                                       |
-|Thread 2, called the Line Separator Thread, replaces every line separator in the input by a space.                             |
-|Thread, 3 called the Plus Sign thread, replaces every pair of plus signs, i.e., "++", by a "^".                                |
-|Thread 4, called the Output Thread, write this processed data to standard output as lines of exactly 80 characters.            |
-|Furthermore, in your program these 4 threads must communicate with each other using the Producer-Consumer approach.            |                                                             |
-|                                                                                                                               |
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+|Author: Nathan Shelby                                                                                                             |
+|Date: 11/28/2020                                                                                                                  |
+|Course: CS344                                                                                                                     |
+|                                        Homework 5: One-Time Pads                                                                 |
+|                                                                                                                                  |
+| Write programs that encrypt and decrypt plaintext files using a randomly generated key                                           |
+| The programs are as follows:                                                                                                     |
+| keygen will generate a random key of x length using the 26 capital letters and a space                                           |
+| enc_client will send a plaintext file and a key using a network socket to enc_server. It will print the response from enc_server |
+| enc_server will encrypt the plaintext using the key sent from enc_client and send back the encrypted string to enc_client        |
+| dec_client will do the same with the encrypted string as enc+client did with the plaintext                                       |
+| dec_server will decrypt the encrypted string using the key sent over by dec_client                                               |
+|                                                                                                                                  |
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
+
 
 /*
-  I used the final example from the explorations as the foundation for how I built out this program, modifying it to act as my input
-  and output.  So any similarities you see between those two processes and the final example from Exploration: Condition Varialbes is
-  for that reason.  I also utilized stack overflow for direction on how best to implement the character expansion.
+  I used the following to help adjust the starter code to handle multiple connections: https://www.tutorialspoint.com/unix_sockets/socket_server_example.htm
+  I also used the example of a counting semaphore from the exploration to help handle that.
 */
 
 
-
+/*
+   Ints for the connection socket address of the current thread, the number of chars read from the client, the number of chars sent to the client
+   And the number of chars sent in the current send request
+*/
 int connectionSocket, charsRead, sentBits, sendFbits;
 
+// Defines the struct for ockaddr_in
 struct sockaddr_in serverAddress, clientAddress;
 
+// Defines the len of clientAddress
 socklen_t sizeOfClientInfo = sizeof(clientAddress);
-
 
 // Number of resources in the pool
 #define POOL_SIZE       5
@@ -48,8 +52,9 @@ socklen_t sizeOfClientInfo = sizeof(clientAddress);
 // Declare a semaphone
 sem_t counting_sem;
 
-// Number of threads to spawn
+// Keep track of how many threads we have currently
 int NUM_THREADS = 0;
+
 
 // Error function used for reporting issues
 void error(const char* msg) {
@@ -57,37 +62,65 @@ void error(const char* msg) {
     exit(1);
 }
 
+
+/*
+   The meat of the decryption server.  Take the plaintext and key sent by the decryption client,
+   And decrypt the plaintext with the key
+*/
 void use_resource(int connectionSocket) {
+
+    // Holds the plaintext and key sent over from the client 
     char buffer[140020];
-    char test[11];
+
+    // Holds the verification data sent over from the client
+    char test[4];
+
+    // Used to point to the dividing char between the plaintext and key in buffer
     char* key;
+
+    // Alphabet + space used for decryption
     char alpha[27] = { 'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z',' ' };
+
+    // Holds the decrypted string
     char plainText[70000];
+
+    // Holds the key sent over from the client
     char keyText[70005];
 
-    // Get the message from the client and display it
-    memset(test, '\0', 11);
+    // Get the verification message from the client and put it it the test buffer
+    memset(test, '\0', 4);
+
     // Read the client's message from the socket
-    charsRead = recv(connectionSocket, test, 11, 0);
+    charsRead = recv(connectionSocket, test, 4, 0);
     if (charsRead < 0) {
         error("ERROR reading from socket");
     }
 
+    // If the verification data does not match, return an error
     if (strstr(test, "dec1") == NULL) {
         error("ERROR you are not dec_client");
     }
 
     // Get the message from the client and display it
     memset(buffer, '\0', 140020);
+
     // Read the client's message from the socket
     charsRead = recv(connectionSocket, buffer, 140020, 0);
+
     if (charsRead < 0) {
         error("ERROR reading from socket");
     }
 
+    // Find and point to the @ symbol in the string that separates the plaintext from the key
     key = strchr(buffer, '@');
+
+    // Take everything after the @ as the key
     strcpy(keyText, key + 1);
+
+    // Erase the @ and everything after it to leave just the plaintext in the buffer
     *key = 0;
+
+    // Iterate over the buffer and key char by char using the alphabet to assign numerical values to PInt and kInt for each character
     for (int i = 0; i < strlen(buffer); i++) {
         int pInt, kInt, fInt = 0;
         for (int j = 0; j < strlen(alpha); j++) {
@@ -98,12 +131,17 @@ void use_resource(int connectionSocket) {
                 kInt = j;
             }
         }
+
+        // add pInt to kInt to get the int of the final decrypted char.  If it's beyond the alphabet range, subtract 27
         fInt = pInt - kInt;
         if (fInt < 0) {
             fInt = fInt + 27;
         }
+        // Build the decrypted string char by char in plainText
         plainText[i] = alpha[fInt];
     }
+
+    // Send the decrypted string back to the client, only stopping once you've sent a strlen(plainText) amount of chars
     charsRead = strlen(plainText);
     while (sentBits < charsRead) {
         // Send a Success message back to the client
@@ -117,13 +155,16 @@ void use_resource(int connectionSocket) {
     return;
 }
 
-void* dec_process(void* argument, int sock) {
-    // The argument to the thread is a pointer to a character 
 
+// Middle man function that attempts to lock the semaphore and call use_resource.  Blocks if we are at the max number of connections
+void* dec_process(void* argument, int sock) {
+
+    // Try to decrement the semaphore and run the use_resource function.  Blocks if it cannot decrement    
     sem_wait(&counting_sem);
 
     use_resource(sock);
 
+    // Increment the semaphore
     sem_post(&counting_sem);
 
     return NULL;
@@ -148,9 +189,10 @@ void setupAddressStruct(struct sockaddr_in* address,
 
 
 
-// Initiate our program, create and call all 4 threads and handle their return
+// Initiate our program, create a socket, listen for connections, accept connections, and run the decryption method
 int main(int argc, char* argv[]) {
 
+    // Holds the pid for spun off child processes
     int pid;
 
     // Check usage & args
@@ -162,6 +204,7 @@ int main(int argc, char* argv[]) {
     // Initialize the semaphore to POOL_SIZE
     int res = sem_init(&counting_sem, 0, POOL_SIZE);
 
+    // Create threads to handle multiple connections
     pthread_t threads[NUM_THREADS];
     char thread_name[NUM_THREADS];
 
@@ -196,18 +239,22 @@ int main(int argc, char* argv[]) {
             error("ERROR on accept");
         }
 
+        // Fork off a child process
         pid = fork();
 
         if (pid < 0) {
             error("ERROR on fork");
         }
 
+        // If successful, begin the decryption process
         if (pid == 0) {
             // Close the listening socket
             close(listenSocket);
+            // Increase our thread tracking int by 1
             NUM_THREADS++;
             // Give threads a name starting with 'A' which is ASCII 65
             thread_name[NUM_THREADS] = NUM_THREADS + 65;
+            // Run the decryption middle process to see if we can decrypt this connection
             dec_process((void*)&thread_name[NUM_THREADS], connectionSocket);
             exit(0);
         }
@@ -219,6 +266,5 @@ int main(int argc, char* argv[]) {
 
     // Destroy the semphore
     sem_destroy(&counting_sem);
-
     return 0;
 }
